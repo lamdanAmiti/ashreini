@@ -1,17 +1,16 @@
 {
-  "name": "ashreinu-downloader",
+  "name": "ashreinu-offline",
   "version": "1.0.0",
-  "description": "Download audio files from ashreinu.app for offline listening",
+  "description": "Offline access for ashreinu.app",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "engines": {
-    "node": ">=16.0.0"
+    "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "puppeteer": "^20.1.1"
+    "puppeteer": "^21.5.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }
