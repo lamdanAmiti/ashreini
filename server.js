@@ -1,127 +1,92 @@
+// server.js - Opus File Finder
 const express = require('express');
 const puppeteer = require('puppeteer');
 const path = require('path');
+
 const app = express();
+const PORT = 3000;
 
-// Use the PORT environment variable provided by the cloud server
-const port = process.env.PORT || 3000;
+// Serve static files
+app.use(express.static('public'));
 
-// Serve static files from the 'public' directory
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-app.post('/process-url', async (req, res) => {
-    const urlToProcess = req.body.url || 'https://ashreinu.app';
-    const opusUrl = await findOpusUrl(urlToProcess);
+// API endpoint to find opus files
+app.get('/find-opus', async (req, res) => {
+    const websiteUrl = req.query.url;
     
-    if (opusUrl) {
-        res.send({ 
-            streamUrl: opusUrl,
-            downloadLink: opusUrl // For direct download, we'll use the opus URL directly
-        });
-    } else {
-        res.status(404).send({ error: 'No opus file found' });
+    if (!websiteUrl) {
+        return res.status(400).json({ error: 'URL parameter is required' });
     }
-});
 
-async function findOpusUrl(url) {
-    const browser = await puppeteer.launch({ 
-        headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu'
-        ]
-    });
-    
-    const page = await browser.newPage();
-    await page.setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36");
-    
-    let foundOpus = false;
-    let opusUrl = '';
-    
-    page.on('response', async (response) => {
-        const responseUrl = response.url();
-        if (!foundOpus && responseUrl.includes('.opus')) {
-            opusUrl = responseUrl;
-            foundOpus = true;
-        }
-    });
-    
     try {
-        await page.goto(url, { waitUntil: 'networkidle2' });
+        const browser = await puppeteer.launch({ 
+            headless: 'new' 
+        });
+        const page = await browser.newPage();
         
-        // Wait for the audio player to be available
-        await page.waitForSelector('#main > app-player > ion-content > audio-player > audio-player-unrestored > div > div.controls-container.ng-star-inserted > div.control-buttons-container', { timeout: 10000 });
+        let opusUrl = null;
+
+        // Set up network monitoring
+        await page.setRequestInterception(true);
         
-        // Wait some additional time to capture network requests
-        await page.waitForTimeout(5000);
-        
-        // Inject the download button
-        await page.evaluate(() => {
-            const controlButtons = document.querySelector("#main > app-player > ion-content > audio-player > audio-player-unrestored > div > div.controls-container.ng-star-inserted > div.control-buttons-container");
-            if (controlButtons && !document.querySelector('.offline-download-btn')) {
-                const downloadBtn = document.createElement('button');
-                downloadBtn.className = 'offline-download-btn';
-                downloadBtn.innerText = 'Download for Offline';
-                downloadBtn.style.cssText = 'background: #4CAF50; color: white; border: none; padding: 10px; margin: 10px; cursor: pointer; border-radius: 5px;';
+        page.on('request', (request) => {
+            // Just continue all requests
+            request.continue();
+        });
+
+        page.on('response', async (response) => {
+            const url = response.url();
+            const contentType = response.headers()['content-type'] || '';
+            
+            // Check if the response is an opus file
+            if (contentType.includes('audio/opus') || 
+                contentType.includes('audio/ogg') ||
+                url.endsWith('.opus') || 
+                url.endsWith('.ogg')) {
                 
-                downloadBtn.onclick = function() {
-                    // Trigger the download from our server
-                    fetch('/process-url', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ url: window.location.href })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.downloadLink) {
-                            const a = document.createElement('a');
-                            a.href = data.downloadLink;
-                            a.download = 'audio.opus';
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            
-                            // Cache the page for offline access
-                            if ('caches' in window) {
-                                caches.open('offline-cache').then(cache => {
-                                    cache.add(window.location.href);
-                                });
-                            }
-                            
-                            alert('Download started! The audio file will be saved for offline access.');
-                        } else {
-                            alert('Failed to find audio file.');
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        alert('Error downloading file.');
-                    });
-                };
-                
-                controlButtons.appendChild(downloadBtn);
+                if (!opusUrl) {
+                    opusUrl = url;
+                    console.log('Found Opus file:', url);
+                }
             }
         });
-        
-    } catch (error) {
-        console.error('Error during navigation:', error.message);
-    } finally {
-        await browser.close();
-    }
-    
-    return opusUrl;
-}
 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+        // Navigate to the website
+        try {
+            await page.goto(websiteUrl, { 
+                waitUntil: 'networkidle0',
+                timeout: 30000 
+            });
+            
+            // Wait a bit more for any delayed requests
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            
+        } catch (error) {
+            console.log('Navigation error:', error.message);
+        }
+
+        await browser.close();
+
+        if (opusUrl) {
+            res.json({ 
+                success: true, 
+                opusUrl: opusUrl 
+            });
+        } else {
+            res.json({ 
+                success: false, 
+                message: 'No Opus files found' 
+            });
+        }
+
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ 
+            error: 'An error occurred while searching for Opus files',
+            details: error.message 
+        });
+    }
 });
 
-app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
+app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`);
 });
