@@ -5,12 +5,13 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "install-puppeteer": "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm install puppeteer && apt-get update && apt-get install -y chromium",
+    "install-puppeteer": "npm install puppeteer && npx puppeteer browsers install chrome",
     "postinstall": "npm run install-puppeteer"
   },
   "engines": {
     "node": ">=14.0.0"
   },
+  "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
     "puppeteer": "^22.8.2"
