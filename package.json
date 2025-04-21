@@ -4,8 +4,7 @@
   "description": "Download audio files from ashreinu.app for offline playback",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "postinstall": "node browser-setup.js"
+    "start": "node server.js"
   },
   "engines": {
     "node": ">=14.0.0"
