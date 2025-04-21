@@ -1,13 +1,8 @@
-/**
- * Service Worker for caching ashreinu.app audio files
- */
-
-const CACHE_NAME = 'ashreinu-audio-v1';
-
-// Files to cache on install
+const CACHE_NAME = 'ashreinu-offline-v1';
 const urlsToCache = [
   '/',
-  '/index.html'
+  '/index.html',
+  '/sw.js'
 ];
 
 // Install event - cache basic files
@@ -15,66 +10,65 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
-        console.log('Service Worker: Caching files');
+        console.log('Opened cache');
         return cache.addAll(urlsToCache);
+      })
+  );
+});
+
+// Fetch event - serve from cache or network
+self.addEventListener('fetch', event => {
+  event.respondWith(
+    caches.match(event.request)
+      .then(response => {
+        // Cache hit - return the response
+        if (response) {
+          return response;
+        }
+        
+        // Clone the request
+        const fetchRequest = event.request.clone();
+        
+        return fetch(fetchRequest)
+          .then(response => {
+            // Check if we received a valid response
+            if (!response || response.status !== 200 || response.type !== 'basic') {
+              return response;
+            }
+            
+            // Clone the response
+            const responseToCache = response.clone();
+            
+            // Cache the response
+            caches.open(CACHE_NAME)
+              .then(cache => {
+                // Cache opus files and page resources
+                if (event.request.url.endsWith('.opus') || 
+                    event.request.url.includes('ashreinu.app')) {
+                  cache.put(event.request, responseToCache);
+                  console.log('Cached:', event.request.url);
+                }
+              });
+            
+            return response;
+          });
       })
   );
 });
 
 // Activate event - clean up old caches
 self.addEventListener('activate', event => {
+  const cacheWhitelist = [CACHE_NAME];
+  
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
-        cacheNames.map(cache => {
-          if (cache !== CACHE_NAME) {
-            console.log('Service Worker: Clearing old cache');
-            return caches.delete(cache);
+        cacheNames.map(cacheName => {
+          if (cacheWhitelist.indexOf(cacheName) === -1) {
+            return caches.delete(cacheName);
           }
         })
       );
     })
   );
-});
-
-// Fetch event - serve from cache if available, otherwise fetch and cache
-self.addEventListener('fetch', event => {
-  // Check if request is for audio file
-  if (event.request.url.endsWith('.opus')) {
-    console.log('Service Worker: Fetching audio file', event.request.url);
-    
-    event.respondWith(
-      caches.open(CACHE_NAME).then(cache => {
-        return cache.match(event.request).then(response => {
-          // Return cached version if available
-          if (response) {
-            console.log('Service Worker: Using cached audio');
-            return response;
-          }
-          
-          // Otherwise fetch from network and cache
-          return fetch(event.request).then(networkResponse => {
-            // Cache a copy of the response
-            cache.put(event.request, networkResponse.clone());
-            console.log('Service Worker: Caching new audio file');
-            return networkResponse;
-          });
-        });
-      })
-    );
-  } else {
-    // For all other requests
-    event.respondWith(
-      caches.match(event.request)
-        .then(response => {
-          // Return cached response if available
-          if (response) {
-            return response;
-          }
-          
-          // Otherwise fetch from network
-          return fetch(event.request);
-        })
-    );
-  }
 });
