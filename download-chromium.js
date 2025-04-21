@@ -6,62 +6,62 @@ const path = require('path');
 console.log('Setting up Puppeteer for Render deployment...');
 
 try {
-  // Make sure puppeteer downloads Chromium
-  console.log('Making sure Puppeteer is installed with Chromium...');
-  process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'false';
+  // Install the Puppeteer CLI
+  console.log('Installing Puppeteer CLI...');
+  execSync('npm install -g puppeteer', { stdio: 'inherit' });
   
-  console.log('Installing Puppeteer with Chromium...');
-  execSync('npm install puppeteer@22.8.2', { stdio: 'inherit' });
-  
-  // Get installation info
-  console.log('Getting Puppeteer installation info...');
-  const puppeteer = require('puppeteer');
-  
-  // Create a simple test to confirm Puppeteer works
-  async function testPuppeteer() {
-    console.log('Testing Puppeteer installation...');
-    try {
-      // Launch browser to test if it works
-      const browser = await puppeteer.launch({
-        headless: "new",
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
-      
-      // Get the executable path from the browser
-      const browserInfo = await browser.version();
-      const executablePath = browser.process().spawnfile;
-      
-      console.log('Browser version:', browserInfo);
-      console.log('Executable path:', executablePath);
-      
-      // Store the executable path
-      fs.writeFileSync(
-        path.join(__dirname, 'chromium-path.json'), 
-        JSON.stringify({ 
-          executablePath: executablePath,
-          version: browserInfo
-        })
-      );
-      
-      await browser.close();
-      console.log('Browser test successful!');
-    } catch (error) {
-      console.error('Error testing Puppeteer:', error);
-      // Even if test fails, we'll continue
-    }
+  // Use puppeteer CLI to install Chrome
+  console.log('Installing Chrome browser...');
+  try {
+    execSync('npx puppeteer browsers install chrome', { stdio: 'inherit' });
+    console.log('Chrome browser installed successfully');
+  } catch (error) {
+    console.error('Error installing Chrome browser:', error.message);
+    console.log('Continuing anyway...');
   }
   
-  // Run the test
-  testPuppeteer().then(() => {
-    console.log('Puppeteer setup completed!');
-  }).catch(err => {
-    console.error('Error during Puppeteer test:', err);
-    // Continue anyway
-    console.log('Will try to use default Puppeteer installation despite test error.');
-  });
+  // Try to find the installed browser location
+  console.log('Checking for Chrome installation...');
+  try {
+    const browserInfo = execSync('npx puppeteer browsers list', { encoding: 'utf8' });
+    console.log('Browsers found:');
+    console.log(browserInfo);
+    
+    // Parse the browserInfo to find Chrome path
+    const lines = browserInfo.split('\n');
+    let chromePath = null;
+    
+    for (const line of lines) {
+      if (line.includes('chrome') && line.includes('/')) {
+        // Extract path from the line
+        const parts = line.split(' ');
+        for (const part of parts) {
+          if (part.startsWith('/')) {
+            chromePath = part;
+            break;
+          }
+        }
+        if (chromePath) break;
+      }
+    }
+    
+    if (chromePath) {
+      console.log('Found Chrome path:', chromePath);
+      // Save the path
+      fs.writeFileSync(
+        path.join(__dirname, 'chromium-path.json'), 
+        JSON.stringify({ executablePath: chromePath })
+      );
+      console.log('Chrome path saved to chromium-path.json');
+    } else {
+      console.log('Could not extract Chrome path from browser list');
+    }
+  } catch (error) {
+    console.error('Error listing browsers:', error.message);
+  }
   
+  console.log('Puppeteer setup completed - will try to use default browser');
 } catch (error) {
   console.error('Error setting up Puppeteer:', error);
-  // Continue with the build even if this script fails
-  console.log('Continuing with default Puppeteer installation...');
+  console.log('Will continue with default Puppeteer configuration');
 }
