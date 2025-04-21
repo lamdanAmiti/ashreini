@@ -60,7 +60,7 @@ app.get('/after/*', async (req, res) => {
 // Function to get the opus file URL using Puppeteer
 async function getOpusFileUrl(url) {
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   
@@ -99,7 +99,7 @@ async function getOpusFileUrl(url) {
 // Function to process all opus files in a page
 async function processAllOpusFiles(url) {
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   
