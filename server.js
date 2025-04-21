@@ -21,7 +21,7 @@ async function getOpusFileUrl(url) {
     launchOptions.executablePath = chromiumPath;
     console.log(`[${new Date().toISOString()}] Using Chromium at: ${chromiumPath}`);
   } else {
-    console.log(`[${new Date().toISOString()}] Using Puppeteer's bundled Chromium`);
+    console.log(`[${new Date().toISOString()}] Using Puppeteer's default browser`);
   }
   
   try {
@@ -792,7 +792,7 @@ async function processAllOpusFiles(url) {
     launchOptions.executablePath = chromiumPath;
     console.log(`[${new Date().toISOString()}] Using Chromium at: ${chromiumPath}`);
   } else {
-    console.log(`[${new Date().toISOString()}] Using Puppeteer's bundled Chromium`);
+    console.log(`[${new Date().toISOString()}] Using Puppeteer's default browser`);
   }
   
   try {
