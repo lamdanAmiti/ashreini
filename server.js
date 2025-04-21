@@ -1,139 +1,166 @@
 /**
- * Simple server version - No Puppeteer dependency
- * Direct HTTP requests to get audio files from ashreinu.app
+ * Proxy server for ashreinu.app that injects a download button
  */
 const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+const cheerio = require('cheerio');
+const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const TARGET_SITE = 'https://ashreinu.app';
 
-// Serve static files
+// Serve our static files
 app.use(express.static('public'));
 
-// Function to download a file
-function downloadFile(url) {
-  return new Promise((resolve, reject) => {
-    https.get(url, (response) => {
-      if (response.statusCode !== 200) {
-        reject(new Error(`Failed to download file: ${response.statusCode}`));
-        return;
-      }
-      
-      const chunks = [];
-      
-      response.on('data', (chunk) => {
-        chunks.push(chunk);
-      });
-      
-      response.on('end', () => {
-        resolve(Buffer.concat(chunks));
-      });
-    }).on('error', reject);
-  });
-}
-
-// Simple proxy approach - fetch and parse HTML directly
-app.get('/fetch-audio', async (req, res) => {
-  const targetSite = 'https://ashreinu.app';
-  
+// Function to modify HTML content and inject our download button
+const modifyResponse = (body, req) => {
   try {
-    console.log('Proxying request to:', targetSite);
+    // Load HTML into cheerio
+    const $ = cheerio.load(body);
     
-    // Make a simple HTTP request to the target site
-    const response = await fetch(targetSite);
-    const html = await response.text();
+    // Find the audio player controls container
+    const controlsContainer = $('#main > app-player > ion-content > audio-player > audio-player-unrestored > div > div.controls-container.ng-star-inserted > div.control-buttons-container');
     
-    // Look for .opus URLs in the HTML
-    const opusRegex = /https?:\/\/[^"']+\.opus/g;
-    const matches = html.match(opusRegex);
-    
-    if (matches && matches.length > 0) {
-      console.log('Found audio URLs:', matches);
-      return res.json({ 
-        success: true, 
-        audioUrl: matches[0],
-        allMatches: matches 
-      });
-    } else {
-      // If no opus files found in HTML, check network requests
-      console.log('No audio URLs found in HTML. Trying another approach...');
+    if (controlsContainer.length) {
+      console.log('Found controls container, injecting download button');
       
-      // List of common paths to check
-      const possiblePaths = [
-        '/assets/audio/main.opus',
-        '/audio/main.opus',
-        '/audio/latest.opus',
-        '/content/audio.opus'
-      ];
+      // Add our download button
+      controlsContainer.append(`
+        <button id="download-button" class="control-button" 
+                style="background-color: #4CAF50; color: white; border: none; border-radius: 4px; padding: 8px 12px; cursor: pointer; margin-left: 10px;">
+          Download for Offline
+        </button>
+      `);
       
-      // Try each path
-      for (const path of possiblePaths) {
-        try {
-          const audioUrl = `${targetSite}${path}`;
-          // Just check if the URL exists
-          const audioCheck = await fetch(audioUrl, { method: 'HEAD' });
-          if (audioCheck.ok) {
-            return res.json({ 
-              success: true, 
-              audioUrl: audioUrl
+      // Add our script to find and download the opus file
+      $('body').append(`
+        <script>
+          (function() {
+            // Wait for page to fully load
+            window.addEventListener('load', function() {
+              // Find the download button we injected
+              const downloadButton = document.getElementById('download-button');
+              if (!downloadButton) return;
+              
+              downloadButton.addEventListener('click', async function() {
+                // Find the audio element
+                const audioElements = document.querySelectorAll('audio');
+                if (!audioElements || audioElements.length === 0) {
+                  alert('No audio element found on the page');
+                  return;
+                }
+                
+                // Get the current audio source
+                const audioSrc = audioElements[0].src;
+                if (!audioSrc) {
+                  alert('No audio source found');
+                  return;
+                }
+                
+                // Check if it's an opus file
+                if (!audioSrc.endsWith('.opus')) {
+                  alert('Current audio is not an opus file');
+                  return; 
+                }
+                
+                // Send to our server endpoint to handle download and caching
+                window.location.href = '/download-opus?url=' + encodeURIComponent(audioSrc);
+              });
             });
-          }
-        } catch (err) {
-          // Continue to next path
-          console.log(`Path ${path} not found`);
-        }
+          })();
+        </script>
+      `);
+    } else {
+      console.log('Controls container not found');
+    }
+    
+    return $.html();
+  } catch (error) {
+    console.error('Error modifying response:', error);
+    return body;
+  }
+};
+
+// Create a proxy middleware with response intercept
+const ashreinu = createProxyMiddleware({
+  target: TARGET_SITE,
+  changeOrigin: true,
+  selfHandleResponse: true, // We'll handle the response ourselves
+  onProxyRes: (proxyRes, req, res) => {
+    const contentType = proxyRes.headers['content-type'] || '';
+    let body = [];
+    
+    // Collect response body
+    proxyRes.on('data', (chunk) => {
+      body.push(chunk);
+    });
+    
+    // When the response is complete
+    proxyRes.on('end', () => {
+      body = Buffer.concat(body).toString();
+      
+      // Only modify HTML responses
+      if (contentType.includes('text/html')) {
+        body = modifyResponse(body, req);
       }
       
-      return res.status(404).json({ 
-        success: false, 
-        message: 'No audio files found on the page' 
+      // Set headers and send response
+      Object.keys(proxyRes.headers).forEach(key => {
+        // Skip content-length as it will be incorrect after our modifications
+        if (key !== 'content-length') {
+          res.setHeader(key, proxyRes.headers[key]);
+        }
       });
-    }
-  } catch (error) {
-    console.error('Error fetching audio:', error);
-    res.status(500).json({ success: false, message: error.message });
+      
+      res.end(body);
+    });
   }
 });
 
-// Route to directly download an opus file by URL
+// Route to download opus files
 app.get('/download-opus', async (req, res) => {
-  const url = req.query.url;
+  const { url } = req.query;
   
   if (!url) {
-    return res.status(400).json({ success: false, message: 'URL parameter is required' });
+    return res.status(400).send('URL parameter is required');
   }
   
   try {
     console.log('Downloading opus from URL:', url);
-    const opusResponse = await fetch(url);
+    const response = await fetch(url);
     
-    if (!opusResponse.ok) {
-      throw new Error(`Failed to fetch opus: ${opusResponse.status}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch opus: ${response.status}`);
     }
     
-    const contentType = opusResponse.headers.get('content-type');
-    const contentDisposition = opusResponse.headers.get('content-disposition') || 'attachment; filename="audio.opus"';
+    // Get filename from URL or use default
+    const urlParts = url.split('/');
+    const filename = urlParts[urlParts.length - 1] || 'audio.opus';
     
-    res.setHeader('Content-Type', contentType || 'audio/opus');
-    res.setHeader('Content-Disposition', contentDisposition);
+    // Set response headers for download
+    res.setHeader('Content-Type', 'audio/opus');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     
-    // Pipe the response directly to the client
-    opusResponse.body.pipe(res);
+    // Pipe the response to the client
+    response.body.pipe(res);
   } catch (error) {
     console.error('Error downloading opus:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).send(`Error downloading audio: ${error.message}`);
   }
 });
 
-// Simple health check endpoint
+// Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
+// Use the proxy for all other routes
+app.use('/', ashreinu);
+
 // Start server
 app.listen(PORT, () => {
-  console.log(`Simple server running on port ${PORT}`);
+  console.log(`Proxy server running on port ${PORT}`);
 });
