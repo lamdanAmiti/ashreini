@@ -345,7 +345,8 @@ app.get('/after/*', async (req, res) => {
 async function getOpusFileUrl(url) {
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
   });
   
   try {
@@ -384,7 +385,8 @@ async function getOpusFileUrl(url) {
 async function processAllOpusFiles(url) {
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
   });
   
   try {
