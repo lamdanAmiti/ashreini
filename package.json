@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "install-puppeteer": "npm install puppeteer && npx puppeteer browsers install chromium",
+    "install-puppeteer": "npm install puppeteer && npx puppeteer browsers",
     "postinstall": "npm run install-puppeteer"
   },
   "engines": {
