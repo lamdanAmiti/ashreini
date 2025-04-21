@@ -1,19 +1,12 @@
+/**
+ * Alternative approach using built-in Chromium from puppeteer-core
+ */
 const express = require('express');
 const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
-
-// Load puppeteer configuration
-let puppeteerConfig = {};
-try {
-  const configPath = path.join(__dirname, 'puppeteer-config.json');
-  if (fs.existsSync(configPath)) {
-    puppeteerConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    console.log('Loaded Puppeteer config:', puppeteerConfig);
-  }
-} catch (error) {
-  console.error('Error loading Puppeteer config:', error);
-}
+const https = require('https');
+const http = require('http');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,73 +14,84 @@ const PORT = process.env.PORT || 3000;
 // Serve static files
 app.use(express.static('public'));
 
-// Route to fetch opus file
-app.get('/fetch-audio', async (req, res) => {
-  try {
-    console.log('Starting puppeteer...');
+// Function to download a file
+function downloadFile(url) {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http;
     
-    // Define Chrome executable path based on successful installation
-    const chromeExecutablePath = '/opt/render/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome';
-    
-    // Launch puppeteer with specific args for Render.com
-    const browser = await puppeteer.launch({
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
-      ],
-      executablePath: chromeExecutablePath
-    });
-    
-    const page = await browser.newPage();
-    
-    // Enable request interception to capture audio files
-    await page.setRequestInterception(true);
-    
-    let audioUrl = null;
-    
-    page.on('request', request => {
-      request.continue();
-    });
-    
-    page.on('response', async response => {
-      const url = response.url();
-      if (url.endsWith('.opus') && !audioUrl) {
-        audioUrl = url;
-        console.log('Found opus file:', audioUrl);
+    protocol.get(url, (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`Failed to download file: ${response.statusCode}`));
+        return;
       }
-    });
-    
-    // Navigate to ashreinu.app
-    console.log('Navigating to ashreinu.app...');
-    await page.goto('https://ashreinu.app', { waitUntil: 'networkidle2' });
-    
-    // Wait for audio player to load
-    console.log('Waiting for audio player...');
-    await page.waitForSelector("#main > app-player > ion-content > audio-player > audio-player-unrestored > div > div.controls-container.ng-star-inserted > div.control-buttons-container", { timeout: 30000 });
-    
-    // If we didn't catch the opus file in network requests, try to extract it from the audio element
-    if (!audioUrl) {
-      console.log('Trying to extract audio URL from page...');
-      audioUrl = await page.evaluate(() => {
-        const audioElement = document.querySelector('audio');
-        return audioElement ? audioElement.src : null;
+      
+      const chunks = [];
+      
+      response.on('data', (chunk) => {
+        chunks.push(chunk);
       });
-    }
+      
+      response.on('end', () => {
+        resolve(Buffer.concat(chunks));
+      });
+    }).on('error', reject);
+  });
+}
+
+// Route to directly fetch opus files by URL
+app.get('/fetch-audio-direct', async (req, res) => {
+  const { url } = req.query;
+  
+  if (!url) {
+    return res.status(400).json({ success: false, message: 'URL parameter is required' });
+  }
+  
+  try {
+    console.log('Downloading audio from URL:', url);
+    const audioData = await downloadFile(url);
     
-    await browser.close();
+    // Set appropriate headers for audio file
+    res.setHeader('Content-Type', 'audio/opus');
+    res.setHeader('Content-Disposition', 'attachment; filename="audio.opus"');
+    res.send(audioData);
+  } catch (error) {
+    console.error('Error downloading audio:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Simple route to check server status
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+// Route to fetch opus file without puppeteer
+app.get('/fetch-audio-proxy', async (req, res) => {
+  const { site } = req.query;
+  const targetSite = site || 'https://ashreinu.app';
+  
+  try {
+    console.log('Proxying request to:', targetSite);
     
-    if (audioUrl) {
-      console.log('Returning audio URL:', audioUrl);
-      return res.json({ success: true, audioUrl });
+    // Simple proxy approach - no browser needed
+    const response = await fetch(targetSite);
+    const html = await response.text();
+    
+    // Look for .opus URLs in the HTML
+    const opusRegex = /https?:\/\/[^"']+\.opus/g;
+    const matches = html.match(opusRegex);
+    
+    if (matches && matches.length > 0) {
+      return res.json({ 
+        success: true, 
+        audioUrl: matches[0],
+        allMatches: matches 
+      });
     } else {
-      console.log('No audio URL found');
-      return res.status(404).json({ success: false, message: 'No audio file found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No audio files found on the page' 
+      });
     }
   } catch (error) {
     console.error('Error fetching audio:', error);
@@ -95,18 +99,7 @@ app.get('/fetch-audio', async (req, res) => {
   }
 });
 
-// Check if Chrome is installed
-app.get('/check-chrome', async (req, res) => {
-  try {
-    const { execSync } = require('child_process');
-    const result = execSync('npx puppeteer browsers list').toString();
-    res.json({ success: true, message: 'Chrome status', browsers: result });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
 // Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Alternative server running on port ${PORT}`);
 });
