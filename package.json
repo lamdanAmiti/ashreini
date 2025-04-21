@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "install-puppeteer": "npm install puppeteer && npx puppeteer browsers",
+    "install-puppeteer": "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm install puppeteer && apt-get update && apt-get install -y chromium",
     "postinstall": "npm run install-puppeteer"
   },
   "engines": {
