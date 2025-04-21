@@ -2,6 +2,37 @@
 async function getOpusFileUrl(url) {
   console.log(`[${new Date().toISOString()}] Launching Puppeteer browser...`);
   
+  // Allow time for debugging
+  console.log('Current directory contents:');
+  try {
+    const files = fs.readdirSync('.');
+    console.log(files);
+    
+    // Try to check if we have a chromium path stored
+    if (fs.existsSync('./chromium-path.json')) {
+      const pathData = JSON.parse(fs.readFileSync('./chromium-path.json', 'utf8'));
+      console.log('Found chromium-path.json:', pathData);
+      if (pathData.executablePath && fs.existsSync(pathData.executablePath)) {
+        console.log(`Executable path exists: ${pathData.executablePath}`);
+        chromiumPath = pathData.executablePath;
+      } else {
+        console.log(`Executable path does not exist: ${pathData.executablePath}`);
+      }
+    }
+    
+    // Try to list puppeteer browsers
+    try {
+      const { execSync } = require('child_process');
+      const browsers = execSync('npx puppeteer browsers list', { encoding: 'utf8' });
+      console.log('Available browsers:');
+      console.log(browsers);
+    } catch (e) {
+      console.log('Error listing browsers:', e.message);
+    }
+  } catch (e) {
+    console.log('Error checking directory:', e.message);
+  }
+  
   // Launch options
   const launchOptions = {
     headless: "new",
@@ -772,6 +803,37 @@ async function getOpusFileUrl(url) {
 // Function to process all opus files in a page
 async function processAllOpusFiles(url) {
   console.log(`[${new Date().toISOString()}] Launching Puppeteer browser for multiple files...`);
+  
+  // Allow time for debugging
+  console.log('Current directory contents:');
+  try {
+    const files = fs.readdirSync('.');
+    console.log(files);
+    
+    // Try to check if we have a chromium path stored
+    if (fs.existsSync('./chromium-path.json')) {
+      const pathData = JSON.parse(fs.readFileSync('./chromium-path.json', 'utf8'));
+      console.log('Found chromium-path.json:', pathData);
+      if (pathData.executablePath && fs.existsSync(pathData.executablePath)) {
+        console.log(`Executable path exists: ${pathData.executablePath}`);
+        chromiumPath = pathData.executablePath;
+      } else {
+        console.log(`Executable path does not exist: ${pathData.executablePath}`);
+      }
+    }
+    
+    // Try to list puppeteer browsers
+    try {
+      const { execSync } = require('child_process');
+      const browsers = execSync('npx puppeteer browsers list', { encoding: 'utf8' });
+      console.log('Available browsers:');
+      console.log(browsers);
+    } catch (e) {
+      console.log('Error listing browsers:', e.message);
+    }
+  } catch (e) {
+    console.log('Error checking directory:', e.message);
+  }
   
   // Launch options
   const launchOptions = {
