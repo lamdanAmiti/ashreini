@@ -3,6 +3,18 @@ const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
 
+// Load puppeteer configuration
+let puppeteerConfig = {};
+try {
+  const configPath = path.join(__dirname, 'puppeteer-config.json');
+  if (fs.existsSync(configPath)) {
+    puppeteerConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    console.log('Loaded Puppeteer config:', puppeteerConfig);
+  }
+} catch (error) {
+  console.error('Error loading Puppeteer config:', error);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -13,6 +25,9 @@ app.use(express.static('public'));
 app.get('/fetch-audio', async (req, res) => {
   try {
     console.log('Starting puppeteer...');
+    
+    // Define Chrome executable path based on successful installation
+    const chromeExecutablePath = '/opt/render/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome';
     
     // Launch puppeteer with specific args for Render.com
     const browser = await puppeteer.launch({
@@ -25,7 +40,8 @@ app.get('/fetch-audio', async (req, res) => {
         '--no-zygote',
         '--single-process',
         '--disable-gpu'
-      ]
+      ],
+      executablePath: chromeExecutablePath
     });
     
     const page = await browser.newPage();
@@ -75,6 +91,17 @@ app.get('/fetch-audio', async (req, res) => {
     }
   } catch (error) {
     console.error('Error fetching audio:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Check if Chrome is installed
+app.get('/check-chrome', async (req, res) => {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('npx puppeteer browsers list').toString();
+    res.json({ success: true, message: 'Chrome status', browsers: result });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
