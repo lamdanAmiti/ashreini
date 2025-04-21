@@ -170,6 +170,9 @@ if (!fs.existsSync(indexHtmlPath)) {
   </div>
 
   <script>
+    // Get base URL of server
+    const baseUrl = window.location.origin;
+    
     // Tab functionality
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
@@ -205,7 +208,7 @@ if (!fs.existsSync(indexHtmlPath)) {
       document.getElementById('error-single').style.display = 'none';
       
       try {
-        const response = await fetch(\`/download?url=\${encodeURIComponent(url)}\`);
+        const response = await fetch(\`\${baseUrl}/download?url=\${encodeURIComponent(url)}\`);
         const data = await response.json();
         
         if (data.success) {
@@ -249,7 +252,7 @@ if (!fs.existsSync(indexHtmlPath)) {
       document.getElementById('error-multiple').style.display = 'none';
       
       try {
-        const response = await fetch(\`/after/\${subpath}\`);
+        const response = await fetch(\`\${baseUrl}/after/\${subpath}\`);
         const data = await response.json();
         
         if (data.success && data.urls && data.urls.length > 0) {
@@ -306,16 +309,28 @@ app.get('/download', async (req, res) => {
     return res.status(400).json({ error: 'URL is required' });
   }
   
+  console.log(`[${new Date().toISOString()}] Download request started for URL: ${url}`);
+  
   try {
+    // Add logs to track progress
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    
+    // Send initial response that we're starting
+    console.log(`[${new Date().toISOString()}] Starting Puppeteer process...`);
+    
     const opusUrl = await getOpusFileUrl(url);
     if (opusUrl) {
-      return res.json({ success: true, url: opusUrl });
+      console.log(`[${new Date().toISOString()}] Successfully found opus URL: ${opusUrl}`);
+      return res.json({ success: true, url: opusUrl, logs: `Successfully found opus URL: ${opusUrl}` });
     } else {
-      return res.status(404).json({ error: 'Opus file not found' });
+      console.log(`[${new Date().toISOString()}] No opus file found`);
+      return res.status(404).json({ error: 'Opus file not found', logs: 'No opus file found after complete page scan' });
     }
   } catch (error) {
-    console.error('Error:', error);
-    return res.status(500).json({ error: 'Failed to get opus file' });
+    console.error(`[${new Date().toISOString()}] Error:`, error);
+    return res.status(500).json({ error: 'Failed to get opus file', logs: `Error: ${error.message}` });
   }
 });
 
@@ -327,113 +342,279 @@ app.get('/after/*', async (req, res) => {
   }
   
   const url = `https://ashreinu.app/${subPath}`;
+  console.log(`[${new Date().toISOString()}] Processing subpath request for: ${url}`);
   
   try {
+    console.log(`[${new Date().toISOString()}] Starting to process all opus files...`);
     const opusUrls = await processAllOpusFiles(url);
     if (opusUrls && opusUrls.length > 0) {
-      return res.json({ success: true, urls: opusUrls });
+      console.log(`[${new Date().toISOString()}] Found ${opusUrls.length} opus files`);
+      return res.json({ 
+        success: true, 
+        urls: opusUrls,
+        logs: `Successfully found ${opusUrls.length} opus files` 
+      });
     } else {
-      return res.status(404).json({ error: 'No opus files found' });
+      console.log(`[${new Date().toISOString()}] No opus files found`);
+      return res.status(404).json({ 
+        error: 'No opus files found',
+        logs: 'No opus files found after complete page scan' 
+      });
     }
   } catch (error) {
-    console.error('Error:', error);
-    return res.status(500).json({ error: 'Failed to process opus files' });
+    console.error(`[${new Date().toISOString()}] Error in /after:`, error);
+    return res.status(500).json({ 
+      error: 'Failed to process opus files',
+      logs: `Error: ${error.message}` 
+    });
   }
 });
 
 // Function to get the opus file URL using Puppeteer
 async function getOpusFileUrl(url) {
+  console.log(`[${new Date().toISOString()}] Launching Puppeteer browser...`);
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    args: [
+      '--no-sandbox', 
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-gpu'
+    ],
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
   });
   
   try {
+    console.log(`[${new Date().toISOString()}] Browser launched, creating new page...`);
     const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'networkidle2' });
     
-    // Wait for the audio element to be available
-    await page.waitForSelector('audio', { timeout: 10000 });
+    // Set a longer timeout for navigation
+    console.log(`[${new Date().toISOString()}] Navigating to URL: ${url}`);
+    await page.goto(url, { 
+      waitUntil: 'networkidle2',
+      timeout: 60000 // 60 seconds timeout
+    });
+    
+    console.log(`[${new Date().toISOString()}] Page loaded, waiting for audio element...`);
+    
+    // Wait for the audio element to be available with longer timeout
+    await page.waitForSelector('audio', { timeout: 30000 });
+    
+    console.log(`[${new Date().toISOString()}] Audio element found, extracting source...`);
     
     // Extract the opus file URL
     const opusUrl = await page.evaluate(() => {
+      console.log('Evaluating page for audio sources...');
+      
+      // Check for direct audio src
       const audioElement = document.querySelector('audio');
       if (audioElement && audioElement.src) {
+        console.log('Found direct audio src:', audioElement.src);
         return audioElement.src;
       }
       
-      // If audio element doesn't have src directly, look for sources
-      const sourceElement = document.querySelector('audio source[type="audio/ogg"]');
-      if (sourceElement && sourceElement.src) {
-        return sourceElement.src;
+      // Check for source elements inside audio
+      const sourceElements = document.querySelectorAll('audio source');
+      for (const source of sourceElements) {
+        if (source.src) {
+          console.log('Found audio source:', source.src);
+          return source.src;
+        }
       }
       
+      // Look specifically for opus sources
+      const opusSource = document.querySelector('audio source[type="audio/ogg"]');
+      if (opusSource && opusSource.src) {
+        console.log('Found opus source:', opusSource.src);
+        return opusSource.src;
+      }
+      
+      // If no direct sources found, check the page for opus file links
+      const links = document.querySelectorAll('a[href*=".opus"]');
+      if (links.length > 0) {
+        console.log('Found opus link:', links[0].href);
+        return links[0].href;
+      }
+      
+      console.log('No audio sources found');
       return null;
     });
     
+    console.log(`[${new Date().toISOString()}] Opus URL extraction result: ${opusUrl || 'Not found'}`);
     return opusUrl;
   } catch (error) {
-    console.error('Error in getOpusFileUrl:', error);
+    console.error(`[${new Date().toISOString()}] Error in getOpusFileUrl:`, error);
     throw error;
   } finally {
+    console.log(`[${new Date().toISOString()}] Closing browser...`);
     await browser.close();
   }
 }
 
 // Function to process all opus files in a page
 async function processAllOpusFiles(url) {
+  console.log(`[${new Date().toISOString()}] Launching Puppeteer browser for multiple files...`);
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    args: [
+      '--no-sandbox', 
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-gpu'
+    ],
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
   });
   
   try {
+    console.log(`[${new Date().toISOString()}] Browser launched, creating new page...`);
     const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'networkidle2' });
+    
+    // Enable console log from the browser to server
+    page.on('console', msg => console.log(`[Browser Console] ${msg.text()}`));
+    
+    console.log(`[${new Date().toISOString()}] Navigating to URL: ${url}`);
+    // Set a longer timeout for navigation
+    await page.goto(url, { 
+      waitUntil: 'networkidle2',
+      timeout: 60000 // 60 seconds timeout
+    });
+    
+    console.log(`[${new Date().toISOString()}] Page loaded, extracting all opus file URLs...`);
     
     // Extract all possible opus file URLs
     const opusUrls = await page.evaluate(() => {
+      console.log('Evaluating page for all audio sources...');
+      
       // Look for audio elements
       const audioElements = Array.from(document.querySelectorAll('audio'));
-      const sourceElements = Array.from(document.querySelectorAll('audio source[type="audio/ogg"]'));
+      console.log(`Found ${audioElements.length} audio elements`);
+      
+      // Look for source elements
+      const sourceElements = Array.from(document.querySelectorAll('audio source'));
+      console.log(`Found ${sourceElements.length} source elements`);
+      
+      // Look specifically for opus sources
+      const opusSources = Array.from(document.querySelectorAll('audio source[type="audio/ogg"]'));
+      console.log(`Found ${opusSources.length} opus source elements`);
       
       // Look for any links that might be opus files
-      const links = Array.from(document.querySelectorAll('a[href$=".opus"]'));
+      const links = Array.from(document.querySelectorAll('a[href*=".opus"]'));
+      console.log(`Found ${links.length} links to opus files`);
       
       const urls = [];
       
       // Get sources from audio elements
-      audioElements.forEach(audio => {
-        if (audio.src && audio.src.includes('.opus')) {
+      audioElements.forEach((audio, index) => {
+        if (audio.src) {
+          console.log(`Audio element ${index+1} src:`, audio.src);
           urls.push(audio.src);
+        } else {
+          console.log(`Audio element ${index+1} has no src attribute`);
         }
       });
       
       // Get sources from source elements
-      sourceElements.forEach(source => {
+      sourceElements.forEach((source, index) => {
         if (source.src) {
+          console.log(`Source element ${index+1} src:`, source.src);
           urls.push(source.src);
+        } else {
+          console.log(`Source element ${index+1} has no src attribute`);
         }
       });
       
       // Get URLs from links
-      links.forEach(link => {
+      links.forEach((link, index) => {
         if (link.href) {
+          console.log(`Link ${index+1} href:`, link.href);
           urls.push(link.href);
+        } else {
+          console.log(`Link ${index+1} has no href attribute`);
         }
       });
       
+      // Special handling for ashreinu.app - check for audio JSON data
+      try {
+        // If there's an audio player, try to check for data in script tags
+        const scripts = Array.from(document.querySelectorAll('script:not([src])'));
+        scripts.forEach((script, index) => {
+          if (script.textContent.includes('audio') && script.textContent.includes('url')) {
+            console.log(`Checking script ${index+1} for audio data...`);
+            try {
+              // Try to extract JSON objects that might contain audio URLs
+              const content = script.textContent;
+              const jsonStart = content.indexOf('{');
+              const jsonEnd = content.lastIndexOf('}') + 1;
+              
+              if (jsonStart >= 0 && jsonEnd > jsonStart) {
+                const jsonStr = content.substring(jsonStart, jsonEnd);
+                try {
+                  const data = JSON.parse(jsonStr);
+                  console.log(`Found potential audio data in script ${index+1}`);
+                  
+                  // Check for audio URL patterns
+                  const findAudioUrls = (obj, path = '') => {
+                    if (!obj || typeof obj !== 'object') return;
+                    
+                    Object.keys(obj).forEach(key => {
+                      const value = obj[key];
+                      const newPath = path ? `${path}.${key}` : key;
+                      
+                      if (typeof value === 'string' && 
+                          (value.includes('.opus') || 
+                           value.includes('.mp3') || 
+                           value.includes('audio') ||
+                           key.includes('audio') ||
+                           key.includes('url'))) {
+                        console.log(`Found potential audio URL at ${newPath}:`, value);
+                        urls.push(value);
+                      } else if (typeof value === 'object') {
+                        findAudioUrls(value, newPath);
+                      }
+                    });
+                  };
+                  
+                  findAudioUrls(data);
+                } catch (e) {
+                  console.log(`Error parsing JSON from script ${index+1}:`, e.message);
+                }
+              }
+            } catch (e) {
+              console.log(`Error processing script ${index+1}:`, e.message);
+            }
+          }
+        });
+      } catch (e) {
+        console.log('Error searching for audio data in scripts:', e.message);
+      }
+      
+      // Filter out non-opus URLs and duplicates
+      const opusUrls = urls.filter(url => 
+        url.includes('.opus') || 
+        url.includes('.ogg') || 
+        url.includes('audio/') ||
+        url.includes('/audio')
+      );
+      
+      console.log(`Found ${opusUrls.length} unique opus URLs`);
+      
       // Remove duplicates
-      return [...new Set(urls)];
+      return [...new Set(opusUrls)];
     });
     
+    console.log(`[${new Date().toISOString()}] Extracted ${opusUrls.length} opus URLs`);
     return opusUrls;
   } catch (error) {
-    console.error('Error in processAllOpusFiles:', error);
+    console.error(`[${new Date().toISOString()}] Error in processAllOpusFiles:`, error);
     throw error;
   } finally {
+    console.log(`[${new Date().toISOString()}] Closing browser...`);
     await browser.close();
   }
 }
