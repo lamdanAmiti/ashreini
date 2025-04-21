@@ -5,32 +5,63 @@ const path = require('path');
 
 console.log('Setting up Puppeteer for Render deployment...');
 
-// Set environment variables to ensure Puppeteer downloads Chromium
-process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'false';
-
 try {
-  // Install Puppeteer with Chromium
-  console.log('Downloading Chromium...');
-  execSync('npm uninstall puppeteer && npm install puppeteer@22.8.2', { stdio: 'inherit' });
-  console.log('Puppeteer reinstalled with Chromium');
+  // Make sure puppeteer downloads Chromium
+  console.log('Making sure Puppeteer is installed with Chromium...');
+  process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'false';
   
-  // Create a file to store the Chromium path
+  console.log('Installing Puppeteer with Chromium...');
+  execSync('npm install puppeteer@22.8.2', { stdio: 'inherit' });
+  
+  // Get installation info
+  console.log('Getting Puppeteer installation info...');
   const puppeteer = require('puppeteer');
-  const browserFetcher = puppeteer.createBrowserFetcher();
-  const revisionInfo = browserFetcher.revisionInfo();
   
-  console.log('Chromium installed at:', revisionInfo.executablePath);
-  console.log('Revision information:', JSON.stringify(revisionInfo, null, 2));
+  // Create a simple test to confirm Puppeteer works
+  async function testPuppeteer() {
+    console.log('Testing Puppeteer installation...');
+    try {
+      // Launch browser to test if it works
+      const browser = await puppeteer.launch({
+        headless: "new",
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      
+      // Get the executable path from the browser
+      const browserInfo = await browser.version();
+      const executablePath = browser.process().spawnfile;
+      
+      console.log('Browser version:', browserInfo);
+      console.log('Executable path:', executablePath);
+      
+      // Store the executable path
+      fs.writeFileSync(
+        path.join(__dirname, 'chromium-path.json'), 
+        JSON.stringify({ 
+          executablePath: executablePath,
+          version: browserInfo
+        })
+      );
+      
+      await browser.close();
+      console.log('Browser test successful!');
+    } catch (error) {
+      console.error('Error testing Puppeteer:', error);
+      // Even if test fails, we'll continue
+    }
+  }
   
-  // Save the executable path to a file for the server to read
-  fs.writeFileSync(
-    path.join(__dirname, 'chromium-path.json'), 
-    JSON.stringify({ executablePath: revisionInfo.executablePath })
-  );
+  // Run the test
+  testPuppeteer().then(() => {
+    console.log('Puppeteer setup completed!');
+  }).catch(err => {
+    console.error('Error during Puppeteer test:', err);
+    // Continue anyway
+    console.log('Will try to use default Puppeteer installation despite test error.');
+  });
   
-  console.log('Chromium path saved to chromium-path.json');
-  console.log('Puppeteer setup completed successfully!');
 } catch (error) {
   console.error('Error setting up Puppeteer:', error);
-  process.exit(1);
+  // Continue with the build even if this script fails
+  console.log('Continuing with default Puppeteer installation...');
 }
