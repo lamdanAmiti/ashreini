@@ -1,157 +1,82 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ashreinu Offline Player</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            line-height: 1.6;
-        }
-        .container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 20px;
-        }
-        button {
-            padding: 10px 15px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
-        .status {
-            margin: 20px 0;
-        }
-        .player-container {
-            width: 100%;
-            margin-top: 20px;
-        }
-        audio {
-            width: 100%;
-        }
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ashreinu.app Proxy with Download</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      text-align: center;
+    }
+    h1 {
+      color: #333;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      margin-top: 30px;
+    }
+    button {
+      padding: 10px 15px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    .instructions {
+      text-align: left;
+      background-color: #f8f9fa;
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 30px;
+    }
+    .instructions li {
+      margin-bottom: 10px;
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Ashreinu Offline Player</h1>
-        <p>Download and cache audio files from Ashreinu.app for offline playback</p>
-        
-        <div>
-            <button id="fetchBtn">Fetch Latest Audio</button>
-            <button id="downloadBtn" disabled>Download for Offline</button>
-        </div>
-        
-        <div class="status" id="status"></div>
-        
-        <div class="player-container" id="playerContainer" style="display: none;">
-            <h3>Current Audio:</h3>
-            <audio id="audioPlayer" controls></audio>
-        </div>
-    </div>
+  <h1>Ashreinu.app Proxy with Download Button</h1>
+  
+  <div class="instructions">
+    <h2>How to use:</h2>
+    <ol>
+      <li>Click the "Go to Ashreinu.app" button below</li>
+      <li>Browse and play audio as you normally would</li>
+      <li>Look for the green "Download for Offline" button in the player controls</li>
+      <li>Click it to download the current audio file for offline use</li>
+    </ol>
+  </div>
+  
+  <div class="container">
+    <button onclick="window.location.href='/'">Go to Ashreinu.app</button>
+  </div>
 
-    <script>
-        // Service Worker Registration
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then(registration => {
-                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                    })
-                    .catch(err => {
-                        console.log('ServiceWorker registration failed: ', err);
-                    });
-            });
-        }
-
-        // DOM Elements
-        const fetchBtn = document.getElementById('fetchBtn');
-        const downloadBtn = document.getElementById('downloadBtn');
-        const status = document.getElementById('status');
-        const playerContainer = document.getElementById('playerContainer');
-        const audioPlayer = document.getElementById('audioPlayer');
-        
-        let currentAudioUrl = null;
-
-        // Fetch audio file from server
-        fetchBtn.addEventListener('click', async () => {
-            try {
-                status.innerHTML = 'Fetching audio from Ashreinu.app... <span class="loading"></span>';
-                fetchBtn.disabled = true;
-                
-                const response = await fetch('/fetch-audio');
-                const data = await response.json();
-                
-                if (data.success && data.audioUrl) {
-                    currentAudioUrl = data.audioUrl;
-                    
-                    // Set the audio source
-                    audioPlayer.src = currentAudioUrl;
-                    playerContainer.style.display = 'block';
-                    
-                    status.textContent = 'Audio fetched successfully! You can now download it for offline use.';
-                    downloadBtn.disabled = false;
-                } else {
-                    status.textContent = 'Failed to fetch audio: ' + (data.message || 'Unknown error');
-                }
-            } catch (error) {
-                status.textContent = 'Error: ' + error.message;
-            } finally {
-                fetchBtn.disabled = false;
-            }
-        });
-        
-        // Download for offline use
-        downloadBtn.addEventListener('click', async () => {
-            if (!currentAudioUrl) {
-                status.textContent = 'No audio available to download';
-                return;
-            }
-            
-            try {
-                status.innerHTML = 'Caching audio for offline use... <span class="loading"></span>';
-                downloadBtn.disabled = true;
-                
-                // Cache the audio file using the service worker
-                const cache = await caches.open('ashreinu-audio');
-                await cache.add(currentAudioUrl);
-                
-                // Also cache the page itself for offline access
-                await cache.add('/');
-                
-                status.textContent = 'Audio cached successfully! You can now use it offline.';
-            } catch (error) {
-                status.textContent = 'Error caching audio: ' + error.message;
-            } finally {
-                downloadBtn.disabled = false;
-            }
-        });
-    </script>
+  <script>
+    // Register service worker for offline support
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(registration => {
+            console.log('ServiceWorker registration successful:', registration.scope);
+          })
+          .catch(err => {
+            console.error('ServiceWorker registration failed:', err);
+          });
+      });
+    }
+  </script>
 </body>
 </html>
