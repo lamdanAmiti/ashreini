@@ -3,18 +3,6 @@ const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
 
-// Load puppeteer configuration
-let puppeteerConfig = {};
-try {
-  const configPath = path.join(__dirname, 'puppeteer-config.json');
-  if (fs.existsSync(configPath)) {
-    puppeteerConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    console.log('Loaded Puppeteer config:', puppeteerConfig);
-  }
-} catch (error) {
-  console.error('Error loading Puppeteer config:', error);
-}
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -26,7 +14,16 @@ app.get('/fetch-audio', async (req, res) => {
   try {
     console.log('Starting puppeteer...');
     
-    // Launch puppeteer with specific args for Render.com
+    // Get list of installed browsers to help with debugging
+    try {
+      const { execSync } = require('child_process');
+      const browsersOutput = execSync('npx puppeteer browsers list').toString();
+      console.log('Installed browsers:', browsersOutput);
+    } catch (err) {
+      console.log('Error listing browsers:', err.message);
+    }
+    
+    // Launch puppeteer with no-sandbox mode for Render environment
     const browser = await puppeteer.launch({
       args: [
         '--no-sandbox',
@@ -37,9 +34,7 @@ app.get('/fetch-audio', async (req, res) => {
         '--no-zygote',
         '--single-process',
         '--disable-gpu'
-      ],
-      // Let Puppeteer find the browser automatically
-      channel: 'chrome'
+      ]
     });
     
     const page = await browser.newPage();
@@ -109,6 +104,7 @@ app.get('/fetch-audio-proxy', async (req, res) => {
     const matches = html.match(opusRegex);
     
     if (matches && matches.length > 0) {
+      console.log('Found audio URLs:', matches);
       return res.json({ 
         success: true, 
         audioUrl: matches[0],
@@ -122,6 +118,36 @@ app.get('/fetch-audio-proxy', async (req, res) => {
     }
   } catch (error) {
     console.error('Error fetching audio by proxy:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Route to directly download an opus file by URL
+app.get('/download-opus', async (req, res) => {
+  const url = req.query.url;
+  
+  if (!url) {
+    return res.status(400).json({ success: false, message: 'URL parameter is required' });
+  }
+  
+  try {
+    console.log('Downloading opus from URL:', url);
+    const opusResponse = await fetch(url);
+    
+    if (!opusResponse.ok) {
+      throw new Error(`Failed to fetch opus: ${opusResponse.status}`);
+    }
+    
+    const contentType = opusResponse.headers.get('content-type');
+    const contentDisposition = opusResponse.headers.get('content-disposition') || 'attachment; filename="audio.opus"';
+    
+    res.setHeader('Content-Type', contentType || 'audio/opus');
+    res.setHeader('Content-Disposition', contentDisposition);
+    
+    // Pipe the response directly to the client
+    opusResponse.body.pipe(res);
+  } catch (error) {
+    console.error('Error downloading opus:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
