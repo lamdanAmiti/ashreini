@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ashreinu Downloader</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    input[type="text"] {
+      padding: 10px;
+      width: 100%;
+      font-size: 16px;
+    }
+    button {
+      padding: 10px 15px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 5px;
+    }
+    .error {
+      background-color: #ffeeee;
+      color: #ff0000;
+    }
+    .success {
+      background-color: #eeffee;
+      color: #008800;
+    }
+    .iframe-container {
+      width: 100%;
+      height: 600px;
+      border: 1px solid #ddd;
+      display: none;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Ashreinu Downloader</h1>
+    
+    <div>
+      <label for="url-input">Ashreinu URL (or leave blank for homepage):</label>
+      <input type="text" id="url-input" placeholder="https://ashreinu.app/...">
+    </div>
+    
+    <div>
+      <button id="download-btn">Download Audio</button>
+      <button id="view-btn">View Ashreinu Page</button>
+    </div>
+    
+    <div id="status" class="status"></div>
+    
+    <div id="iframe-container" class="iframe-container">
+      <iframe id="ashreinu-iframe" sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
+    </div>
+  </div>
+
+  <script>
+    // Service worker registration for caching
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('Service Worker registered'))
+          .catch(err => console.log('Service Worker registration failed: ', err));
+      });
+    }
+    
+    document.getElementById('download-btn').addEventListener('click', async () => {
+      const urlInput = document.getElementById('url-input');
+      const statusDiv = document.getElementById('status');
+      const downloadBtn = document.getElementById('download-btn');
+      
+      // Validate and format URL
+      let url = urlInput.value.trim();
+      if (!url) {
+        url = 'https://ashreinu.app';
+      } else if (!url.startsWith('http')) {
+        url = 'https://' + url;
+      }
+      
+      // Update UI
+      statusDiv.textContent = 'Fetching audio URL...';
+      statusDiv.className = 'status';
+      downloadBtn.disabled = true;
+      
+      try {
+        // Call our API to get the audio URL
+        const response = await fetch(`/api/get-audio-url?url=${encodeURIComponent(url)}`);
+        const data = await response.json();
+        
+        if (data.success && data.url) {
+          // Download the file
+          statusDiv.textContent = 'Downloading audio file...';
+          
+          const a = document.createElement('a');
+          a.href = data.url;
+          
+          // Extract filename from URL or use default
+          const urlParts = data.url.split('/');
+          const filename = urlParts[urlParts.length - 1] || 'ashreinu-audio.opus';
+          
+          a.download = filename;
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          
+          // Fetch the file to ensure it's cached by the service worker
+          fetch(data.url, { mode: 'cors' })
+            .then(response => response.blob())
+            .then(blob => {
+              const objectURL = URL.createObjectURL(blob);
+              a.href = objectURL;
+              a.click();
+              URL.revokeObjectURL(objectURL);
+              document.body.removeChild(a);
+              
+              statusDiv.textContent = `Successfully downloaded "${filename}"! The file is now cached for offline use.`;
+              statusDiv.className = 'status success';
+            })
+            .catch(error => {
+              console.error('Download error:', error);
+              statusDiv.textContent = `Error downloading file: ${error.message}`;
+              statusDiv.className = 'status error';
+            });
+        } else {
+          statusDiv.textContent = data.message || 'Failed to find audio URL.';
+          statusDiv.className = 'status error';
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        statusDiv.textContent = `Error: ${error.message}`;
+        statusDiv.className = 'status error';
+      } finally {
+        downloadBtn.disabled = false;
+      }
+    });
+    
+    // View button functionality
+    document.getElementById('view-btn').addEventListener('click', () => {
+      const urlInput = document.getElementById('url-input');
+      const iframeContainer = document.getElementById('iframe-container');
+      const iframe = document.getElementById('ashreinu-iframe');
+      
+      // Validate and format URL
+      let url = urlInput.value.trim();
+      if (!url) {
+        url = 'https://ashreinu.app';
+      } else if (!url.startsWith('http')) {
+        url = 'https://' + url;
+      }
+      
+      // Load URL in iframe
+      iframe.src = url;
+      iframeContainer.style.display = 'block';
+      
+      // Add download button to iframe once loaded
+      iframe.onload = () => {
+        try {
+          const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+          
+          // Find the player control container
+          const controlContainer = iframeDoc.querySelector("#main > app-player > ion-content > audio-player > audio-player-unrestored > div > div.controls-container.ng-star-inserted > div.control-buttons-container");
+          
+          if (controlContainer) {
+            // Create download button
+            const downloadButton = document.createElement('ion-button');
+            downloadButton.className = 'download-btn';
+            downloadButton.innerHTML = '<ion-icon name="download"></ion-icon>';
+            downloadButton.style.marginLeft = '10px';
+            
+            // Add download functionality
+            downloadButton.addEventListener('click', () => {
+              document.getElementById('download-btn').click();
+            });
+            
+            // Add button to container
+            controlContainer.appendChild(downloadButton);
+          }
+        } catch (error) {
+          console.error('Error injecting button:', error);
+        }
+      };
+    });
+  </script>
+</body>
+</html>
