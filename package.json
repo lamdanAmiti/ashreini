@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "postinstall": "node browser-setup.js"
   },
   "engines": {
     "node": ">=14.0.0"
