@@ -2,37 +2,6 @@
 async function getOpusFileUrl(url) {
   console.log(`[${new Date().toISOString()}] Launching Puppeteer browser...`);
   
-  // Allow time for debugging
-  console.log('Current directory contents:');
-  try {
-    const files = fs.readdirSync('.');
-    console.log(files);
-    
-    // Try to check if we have a chromium path stored
-    if (fs.existsSync('./chromium-path.json')) {
-      const pathData = JSON.parse(fs.readFileSync('./chromium-path.json', 'utf8'));
-      console.log('Found chromium-path.json:', pathData);
-      if (pathData.executablePath && fs.existsSync(pathData.executablePath)) {
-        console.log(`Executable path exists: ${pathData.executablePath}`);
-        chromiumPath = pathData.executablePath;
-      } else {
-        console.log(`Executable path does not exist: ${pathData.executablePath}`);
-      }
-    }
-    
-    // Try to list puppeteer browsers
-    try {
-      const { execSync } = require('child_process');
-      const browsers = execSync('npx puppeteer browsers list', { encoding: 'utf8' });
-      console.log('Available browsers:');
-      console.log(browsers);
-    } catch (e) {
-      console.log('Error listing browsers:', e.message);
-    }
-  } catch (e) {
-    console.log('Error checking directory:', e.message);
-  }
-  
   // Launch options
   const launchOptions = {
     headless: "new",
@@ -44,20 +13,21 @@ async function getOpusFileUrl(url) {
       '--no-first-run',
       '--no-zygote',
       '--disable-gpu'
-    ]
+    ],
+    // Use the hardcoded Chrome path
+    executablePath: chromePath
   };
   
-  // If we found a Chrome path, use it
-  if (chromiumPath) {
-    launchOptions.executablePath = chromiumPath;
-    console.log(`[${new Date().toISOString()}] Using Chromium at: ${chromiumPath}`);
-  } else {
-    console.log(`[${new Date().toISOString()}] Using Puppeteer's default browser`);
-  }
+  console.log(`[${new Date().toISOString()}] Using Chrome at: ${chromePath}`);
   
   try {
     console.log(`[${new Date().toISOString()}] Starting browser launch...`);
-    const browser = await puppeteer.launch(launchOptions);
+    
+    // Try to use puppeteer-core directly
+    const puppeteerCore = require('puppeteer-core');
+    console.log('Using puppeteer-core for browser launch');
+    
+    const browser = await puppeteerCore.launch(launchOptions);
     console.log(`[${new Date().toISOString()}] Browser launched successfully`);
     
     try {
@@ -160,8 +130,86 @@ async function getOpusFileUrl(url) {
     }
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error launching browser:`, error);
-    console.error(error);
-    throw error;
+    
+    // Try a fallback without puppeteer-core
+    try {
+      console.log('Trying fallback with regular puppeteer');
+      const browser = await puppeteer.launch({
+        ...launchOptions,
+        ignoreDefaultArgs: ['--disable-extensions']
+      });
+      console.log(`[${new Date().toISOString()}] Browser launched successfully with fallback`);
+      
+      try {
+        console.log(`[${new Date().toISOString()}] Creating new page...`);
+        const page = await browser.newPage();
+        
+        // Set a longer timeout for navigation
+        console.log(`[${new Date().toISOString()}] Navigating to URL: ${url}`);
+        await page.goto(url, { 
+          waitUntil: 'networkidle2',
+          timeout: 60000 // 60 seconds timeout
+        });
+        
+        console.log(`[${new Date().toISOString()}] Page loaded, searching for audio elements...`);
+        
+        // Enable console log from the browser to server
+        page.on('console', msg => console.log(`[Browser Console] ${msg.text()}`));
+        
+        // Extract the opus file URL
+        const opusUrl = await page.evaluate(() => {
+          console.log('Evaluating page for audio sources...');
+          
+          // Check for direct audio src
+          const audioElement = document.querySelector('audio');
+          if (audioElement && audioElement.src) {
+            console.log('Found direct audio src:', audioElement.src);
+            return audioElement.src;
+          }
+          
+          // Check for source elements inside audio
+          const sourceElements = document.querySelectorAll('audio source');
+          for (const source of sourceElements) {
+            if (source.src) {
+              console.log('Found audio source:', source.src);
+              return source.src;
+            }
+          }
+          
+          // Special handling for ashreinu.app
+          if (window.location.hostname.includes('ashreinu.app')) {
+            console.log('Detected ashreinu.app, checking specific patterns...');
+            
+            if (typeof window.ashreinu !== 'undefined') {
+              console.log('Found ashreinu global object');
+              
+              try {
+                if (window.ashreinu.currentClip && window.ashreinu.currentClip.url) {
+                  console.log('Found URL in currentClip:', window.ashreinu.currentClip.url);
+                  return window.ashreinu.currentClip.url;
+                }
+              } catch (e) {
+                console.log('Error accessing ashreinu object:', e.message);
+              }
+            }
+          }
+          
+          return null;
+        });
+        
+        console.log(`[${new Date().toISOString()}] Opus URL extraction result: ${opusUrl || 'Not found'}`);
+        return opusUrl;
+      } catch (error) {
+        console.error(`[${new Date().toISOString()}] Error in fallback page operations:`, error);
+        throw error;
+      } finally {
+        console.log(`[${new Date().toISOString()}] Closing browser...`);
+        await browser.close();
+      }
+    } catch (fallbackError) {
+      console.error(`[${new Date().toISOString()}] Fallback also failed:`, fallbackError);
+      throw error;
+    }
   }
 }// server.js
 const express = require('express');
@@ -171,16 +219,14 @@ const fs = require('fs');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Load the Chromium path if it exists
-let chromiumPath = null;
-try {
-  if (fs.existsSync('./chromium-path.json')) {
-    const chromiumInfo = JSON.parse(fs.readFileSync('./chromium-path.json', 'utf8'));
-    chromiumPath = chromiumInfo.executablePath;
-    console.log(`[${new Date().toISOString()}] Found Chromium path from file: ${chromiumPath}`);
-  }
-} catch (error) {
-  console.error(`[${new Date().toISOString()}] Error loading Chromium path:`, error);
+// Hardcode the Chrome path that was reported during installation
+const chromePath = "/opt/render/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome";
+
+// Verify if the Chrome executable exists
+if (fs.existsSync(chromePath)) {
+  console.log(`Chrome found at ${chromePath}`);
+} else {
+  console.log(`Chrome NOT found at ${chromePath}`);
 }
 
 // Create public directory if it doesn't exist
@@ -804,37 +850,6 @@ async function getOpusFileUrl(url) {
 async function processAllOpusFiles(url) {
   console.log(`[${new Date().toISOString()}] Launching Puppeteer browser for multiple files...`);
   
-  // Allow time for debugging
-  console.log('Current directory contents:');
-  try {
-    const files = fs.readdirSync('.');
-    console.log(files);
-    
-    // Try to check if we have a chromium path stored
-    if (fs.existsSync('./chromium-path.json')) {
-      const pathData = JSON.parse(fs.readFileSync('./chromium-path.json', 'utf8'));
-      console.log('Found chromium-path.json:', pathData);
-      if (pathData.executablePath && fs.existsSync(pathData.executablePath)) {
-        console.log(`Executable path exists: ${pathData.executablePath}`);
-        chromiumPath = pathData.executablePath;
-      } else {
-        console.log(`Executable path does not exist: ${pathData.executablePath}`);
-      }
-    }
-    
-    // Try to list puppeteer browsers
-    try {
-      const { execSync } = require('child_process');
-      const browsers = execSync('npx puppeteer browsers list', { encoding: 'utf8' });
-      console.log('Available browsers:');
-      console.log(browsers);
-    } catch (e) {
-      console.log('Error listing browsers:', e.message);
-    }
-  } catch (e) {
-    console.log('Error checking directory:', e.message);
-  }
-  
   // Launch options
   const launchOptions = {
     headless: "new",
@@ -846,20 +861,21 @@ async function processAllOpusFiles(url) {
       '--no-first-run',
       '--no-zygote',
       '--disable-gpu'
-    ]
+    ],
+    // Use the hardcoded Chrome path
+    executablePath: chromePath
   };
   
-  // If we found a Chrome path, use it
-  if (chromiumPath) {
-    launchOptions.executablePath = chromiumPath;
-    console.log(`[${new Date().toISOString()}] Using Chromium at: ${chromiumPath}`);
-  } else {
-    console.log(`[${new Date().toISOString()}] Using Puppeteer's default browser`);
-  }
+  console.log(`[${new Date().toISOString()}] Using Chrome at: ${chromePath}`);
   
   try {
     console.log(`[${new Date().toISOString()}] Starting browser launch...`);
-    const browser = await puppeteer.launch(launchOptions);
+    
+    // Try to use puppeteer-core directly
+    const puppeteerCore = require('puppeteer-core');
+    console.log('Using puppeteer-core for browser launch');
+    
+    const browser = await puppeteerCore.launch(launchOptions);
     console.log(`[${new Date().toISOString()}] Browser launched successfully`);
     
     try {
@@ -995,8 +1011,80 @@ async function processAllOpusFiles(url) {
       await browser.close();
     }
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error launching browser:`, error);
-    throw error;
+    console.error(`[${new Date().toISOString()}] Error launching browser with puppeteer-core:`, error);
+    
+    // Try fallback with regular puppeteer
+    try {
+      console.log('Trying fallback with regular puppeteer');
+      const browser = await puppeteer.launch({
+        ...launchOptions,
+        ignoreDefaultArgs: ['--disable-extensions']
+      });
+      console.log(`[${new Date().toISOString()}] Browser launched successfully with fallback`);
+      
+      try {
+        console.log(`[${new Date().toISOString()}] Creating new page...`);
+        const page = await browser.newPage();
+        
+        // Enable console log from the browser to server
+        page.on('console', msg => console.log(`[Browser Console] ${msg.text()}`));
+        
+        console.log(`[${new Date().toISOString()}] Navigating to URL: ${url}`);
+        // Set a longer timeout for navigation
+        await page.goto(url, { 
+          waitUntil: 'networkidle2',
+          timeout: 60000 // 60 seconds timeout
+        });
+        
+        console.log(`[${new Date().toISOString()}] Page loaded, extracting all opus file URLs...`);
+        
+        // Extract all possible opus file URLs - simplified version
+        const opusUrls = await page.evaluate(() => {
+          console.log('Evaluating page for all audio sources...');
+          
+          const urls = [];
+          
+          // Look for audio elements
+          const audioElements = Array.from(document.querySelectorAll('audio'));
+          audioElements.forEach(audio => {
+            if (audio.src) {
+              urls.push(audio.src);
+            }
+          });
+          
+          // Special handling for ashreinu.app
+          if (window.location.hostname.includes('ashreinu.app')) {
+            if (typeof window.ashreinu !== 'undefined') {
+              try {
+                if (window.ashreinu.playlist && Array.isArray(window.ashreinu.playlist)) {
+                  window.ashreinu.playlist.forEach(item => {
+                    if (item && item.url) {
+                      urls.push(item.url);
+                    }
+                  });
+                }
+              } catch (err) {
+                console.log('Error accessing ashreinu playlist:', err.message);
+              }
+            }
+          }
+          
+          return [...new Set(urls)];
+        });
+        
+        console.log(`[${new Date().toISOString()}] Extracted ${opusUrls.length} opus URLs with fallback`);
+        return opusUrls;
+      } catch (error) {
+        console.error(`[${new Date().toISOString()}] Error in fallback page operations:`, error);
+        throw error;
+      } finally {
+        console.log(`[${new Date().toISOString()}] Closing browser...`);
+        await browser.close();
+      }
+    } catch (fallbackError) {
+      console.error(`[${new Date().toISOString()}] Fallback also failed:`, fallbackError);
+      throw error;
+    }
   }
 }
 
