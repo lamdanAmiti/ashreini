@@ -1,7 +1,7 @@
 {
-  "name": "opus-file-finder",
+  "name": "ashreinu-downloader",
   "version": "1.0.0",
-  "description": "Web application to find Opus audio files in network requests",
+  "description": "Ashreinu audio downloader with metadata extraction and MP3 conversion",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -9,12 +9,15 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "puppeteer": "^21.0.0"
+    "puppeteer": "^22.8.2",
+    "node-fetch": "^2.6.7"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.2"
   },
   "engines": {
-    "node": ">=16.0.0"
-  }
+    "node": ">=14.0.0"
+  },
+  "author": "Ashreinu.app",
+  "license": "ISC"
 }
