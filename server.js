@@ -1,92 +1,180 @@
-// server.js - Opus File Finder
-const express = require('express');
-const puppeteer = require('puppeteer');
-const path = require('path');
-
-const app = express();
-const PORT = 3000;
-
-// Serve static files
-app.use(express.static('public'));
-
-// API endpoint to find opus files
-app.get('/find-opus', async (req, res) => {
-    const websiteUrl = req.query.url;
-    
-    if (!websiteUrl) {
-        return res.status(400).json({ error: 'URL parameter is required' });
-    }
-
-    try {
-        const browser = await puppeteer.launch({ 
-            headless: 'new' 
-        });
-        const page = await browser.newPage();
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ashreinu Downloader</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
         
-        let opusUrl = null;
-
-        // Set up network monitoring
-        await page.setRequestInterception(true);
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
         
-        page.on('request', (request) => {
-            // Just continue all requests
-            request.continue();
-        });
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .input-group {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px 0 0 5px;
+            font-size: 16px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
+        
+        .success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #a5d6a7;
+        }
+        
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef9a9a;
+        }
+        
+        .loading {
+            background-color: #e3f2fd;
+            color: #1565c0;
+            border: 1px solid #90caf9;
+        }
+        
+        .metadata {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #555;
+        }
+        
+        .download-link {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 10px 20px;
+            background-color: #27ae60;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        
+        .download-link:hover {
+            background-color: #219a52;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Ashreinu Downloader</h1>
+        <div class="input-group">
+            <input type="text" id="url" placeholder="Enter Ashreinu audio URL">
+            <button onclick="downloadAudio()">Download</button>
+        </div>
+        <div id="status"></div>
+    </div>
 
-        page.on('response', async (response) => {
-            const url = response.url();
-            const contentType = response.headers()['content-type'] || '';
+    <script>
+        async function downloadAudio() {
+            const urlInput = document.getElementById('url');
+            const statusDiv = document.getElementById('status');
+            const button = document.querySelector('button');
             
-            // Check if the response is an opus file
-            if (contentType.includes('audio/opus') || 
-                contentType.includes('audio/ogg') ||
-                url.endsWith('.opus') || 
-                url.endsWith('.ogg')) {
+            if (!urlInput.value) {
+                showStatus('Please enter a URL', 'error');
+                return;
+            }
+            
+            button.disabled = true;
+            showStatus('Processing... Please wait, this may take up to 30 seconds.', 'loading');
+            
+            try {
+                const response = await fetch('/api/download-audio', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: urlInput.value })
+                });
                 
-                if (!opusUrl) {
-                    opusUrl = url;
-                    console.log('Found Opus file:', url);
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus(
+                        `<h3>Download ready!</h3>
+                        <div class="metadata">
+                            <strong>Title:</strong> ${data.metadata.title}<br>
+                            <strong>Album:</strong> ${data.metadata.album}<br>
+                            <strong>Artist:</strong> ${data.metadata.artist}
+                        </div>
+                        <a href="/downloads/${data.fileName}" class="download-link" download>Download MP3</a>`, 
+                        'success'
+                    );
+                } else {
+                    showStatus(`Error: ${data.message}`, 'error');
                 }
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                button.disabled = false;
+            }
+        }
+        
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = message;
+            statusDiv.className = type;
+            statusDiv.style.display = 'block';
+        }
+        
+        // Handle Enter key
+        document.getElementById('url').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                downloadAudio();
             }
         });
-
-        // Navigate to the website
-        try {
-            await page.goto(websiteUrl, { 
-                waitUntil: 'networkidle0',
-                timeout: 30000 
-            });
-            
-            // Wait a bit more for any delayed requests
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            
-        } catch (error) {
-            console.log('Navigation error:', error.message);
-        }
-
-        await browser.close();
-
-        if (opusUrl) {
-            res.json({ 
-                success: true, 
-                opusUrl: opusUrl 
-            });
-        } else {
-            res.json({ 
-                success: false, 
-                message: 'No Opus files found' 
-            });
-        }
-
-    } catch (error) {
-        console.error('Error:', error);
-        res.status(500).json({ 
-            error: 'An error occurred while searching for Opus files',
-            details: error.message 
-        });
-    }
-});
-
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
-});
+    </script>
+</body>
+</html>
