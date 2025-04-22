@@ -29,6 +29,13 @@ async function ensureDirectories() {
 app.use(express.static(__dirname));
 app.use(express.json());
 
+// Add CORS headers for production
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    next();
+});
+
 // API endpoint to find and cache Opus files for a specific URL
 app.post('/api/download-audio', async (req, res) => {
     const { url } = req.body;
@@ -46,8 +53,13 @@ app.post('/api/download-audio', async (req, res) => {
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu'
-            ]
+                '--disable-gpu',
+                '--single-process',
+                '--no-zygote'
+            ],
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || (process.env.NODE_ENV === 'production' 
+                ? '/opt/render/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome'
+                : undefined)
         });
         
         const page = await browser.newPage();
